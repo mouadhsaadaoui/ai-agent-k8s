@@ -3,20 +3,29 @@ name: AI Agent CI
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout repo
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
+      # 2. Login to GitHub Container Registry (GHCR)
+      - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build Docker image
-        run: docker build -t ghcr.io/${{ github.repository }}/ai-agent:latest .
+      # 3. Define image name (LOWERCASE safe)
+      - name: Set IMAGE
+        run: echo "IMAGE=ghcr.io/${{ github.repository_owner }}/ai-agent:latest" >> $GITHUB_ENV
 
+      # 4. Build Docker image
+      - name: Build Docker image
+        run: docker build -t $IMAGE .
+
+      # 5. Push Docker image
       - name: Push Docker image
-        run: docker push ghcr.io/${{ github.repository }}/ai-agent:latest
+        run: docker push $IMAGE
