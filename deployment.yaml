@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: ai-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-agent
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+    spec:
+      containers:
+        - name: ai-agent
+          image: ghcr.io/mouadhsaadaoui/ai-agent-k8s/ai-agent:latest
+          ports:
+            - containerPort: 8000
