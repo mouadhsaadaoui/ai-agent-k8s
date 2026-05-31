@@ -26,7 +26,7 @@ def chat(request: ChatRequest):
                 "prompt": request.prompt,
                 "stream": False
             },
-            timeout=30
+            timeout=280
         )
 
         response.raise_for_status()
