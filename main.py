@@ -1,37 +1,21 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import subprocess
 import requests
 from typing import Dict, List
+
+from kubernetes import client, config
 
 app = FastAPI()
 
 OLLAMA_URL = "http://ollama-service.ai-platform.svc.cluster.local:11434"
 
-SAFE_COMMANDS = {
-    "get pods": ["kubectl", "get", "pods", "-n", "ai-platform"],
-    "get services": ["kubectl", "get", "services", "-n", "ai-platform"],
-    "get deployments": ["kubectl", "get", "deployments", "-n", "ai-platform"],
-    "get nodes": ["kubectl", "get", "nodes"],
-}
+# ---------------------------
+# KUBERNETES CLIENT INIT
+# ---------------------------
+config.load_incluster_config()
 
-def execute_kubectl(command: str):
-    cmd = SAFE_COMMANDS.get(command)
-
-    if not cmd:
-        return {"error": "Command not allowed"}
-
-    try:
-        result = subprocess.check_output(
-            cmd,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
-
-        return {"output": result}
-
-    except subprocess.CalledProcessError as e:
-        return {"error": e.output}
+v1 = client.CoreV1Api()
+apps = client.AppsV1Api()
 
 
 # ---------------------------
@@ -39,11 +23,15 @@ def execute_kubectl(command: str):
 # ---------------------------
 memory: Dict[str, List[dict]] = {}
 
+
 class ChatRequest(BaseModel):
     session_id: str
     message: str
 
 
+# ---------------------------
+# MEMORY FUNCTIONS
+# ---------------------------
 def get_history(session_id: str):
     return memory.get(session_id, [])
 
@@ -56,6 +44,29 @@ def save_message(session_id: str, role: str, message: str):
         "role": role,
         "message": message
     })
+
+
+# ---------------------------
+# KUBERNETES FUNCTIONS (NO KUBECTL)
+# ---------------------------
+def get_pods():
+    pods = v1.list_namespaced_pod(namespace="ai-platform")
+    return [p.metadata.name for p in pods.items]
+
+
+def get_services():
+    svcs = v1.list_namespaced_service(namespace="ai-platform")
+    return [s.metadata.name for s in svcs.items]
+
+
+def get_deployments():
+    deps = apps.list_namespaced_deployment(namespace="ai-platform")
+    return [d.metadata.name for d in deps.items]
+
+
+def get_nodes():
+    nodes = v1.list_node()
+    return [n.metadata.name for n in nodes.items]
 
 
 # ---------------------------
@@ -102,6 +113,7 @@ def call_llm(prompt: str):
 @app.post("/chat")
 def chat(req: ChatRequest):
 
+    # save user message
     save_message(req.session_id, "user", req.message)
 
     action = agent_router(req.message)
@@ -116,39 +128,34 @@ def chat(req: ChatRequest):
         }
 
     # -----------------------
-    # TOOL MODE (FIXED)
+    # TOOL MODE
     # -----------------------
     if action == "tool":
 
         user_msg = req.message.lower()
 
-        selected_command = None
-
         if "pods" in user_msg:
-            selected_command = "get pods"
+            result = get_pods()
 
         elif "services" in user_msg:
-            selected_command = "get services"
+            result = get_services()
 
         elif "deployments" in user_msg:
-            selected_command = "get deployments"
+            result = get_deployments()
 
         elif "nodes" in user_msg:
-            selected_command = "get nodes"
+            result = get_nodes()
 
-        if not selected_command:
+        else:
             return {
                 "type": "tool",
-                "error": "No valid kubectl command matched"
+                "error": "No valid kubernetes resource matched"
             }
-
-        result = execute_kubectl(selected_command)
 
         save_message(req.session_id, "assistant", str(result))
 
         return {
             "type": "tool",
-            "command": selected_command,
             "result": result
         }
 
