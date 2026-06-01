@@ -1,50 +1,48 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import requests
+import redis
+import json
 from typing import Dict, List
-
 
 app = FastAPI()
 
+# ---------------------------
+# SERVICES
+# ---------------------------
 OLLAMA_URL = "http://ollama-service.ai-platform.svc.cluster.local:11434"
+TOOL_AGENT_URL = "http://ai-tool-agent.ai-platform.svc.cluster.local:8000/execute"
+
+# Redis (memory service)
+r = redis.Redis(
+    host="redis.ai-platform.svc.cluster.local",
+    port=6379,
+    decode_responses=True
+)
 
 # ---------------------------
-# KUBERNETES CLIENT INIT
+# REQUEST MODEL
 # ---------------------------
-
-
-
-# ---------------------------
-# MEMORY STORE
-# ---------------------------
-memory: Dict[str, List[dict]] = {}
-
-
 class ChatRequest(BaseModel):
     session_id: str
     message: str
 
 
 # ---------------------------
-# MEMORY FUNCTIONS
+# MEMORY (REDIS)
 # ---------------------------
 def get_history(session_id: str):
-    return memory.get(session_id, [])
+    key = f"chat:{session_id}"
+    data = r.lrange(key, 0, -1)
+    return [json.loads(x) for x in data]
 
 
 def save_message(session_id: str, role: str, message: str):
-    if session_id not in memory:
-        memory[session_id] = []
-
-    memory[session_id].append({
+    key = f"chat:{session_id}"
+    r.rpush(key, json.dumps({
         "role": role,
         "message": message
-    })
-
-
-# ---------------------------
-# KUBERNETES FUNCTIONS (NO KUBECTL)
-# ---------------------------
+    }))
 
 
 # ---------------------------
@@ -56,12 +54,7 @@ def agent_router(message: str):
     if "history" in msg:
         return "memory"
 
-    if (
-        "pods" in msg or
-        "services" in msg or
-        "deployments" in msg or
-        "nodes" in msg
-    ):
+    if any(x in msg for x in ["pods", "services", "deployments", "nodes"]):
         return "tool"
 
     return "llm"
@@ -86,12 +79,40 @@ def call_llm(prompt: str):
 
 
 # ---------------------------
+# TOOL CALL
+# ---------------------------
+def call_tool(command: str):
+    return requests.post(
+        TOOL_AGENT_URL,
+        json={"command": command},
+        timeout=30
+    ).json()
+
+
+# ---------------------------
+# TOOL DECISION
+# ---------------------------
+def extract_command(message: str):
+    msg = message.lower()
+
+    if "pods" in msg:
+        return "get pods"
+    if "services" in msg:
+        return "get services"
+    if "deployments" in msg:
+        return "get deployments"
+    if "nodes" in msg:
+        return "get nodes"
+
+    return None
+
+
+# ---------------------------
 # CHAT ENDPOINT
 # ---------------------------
 @app.post("/chat")
 def chat(req: ChatRequest):
 
-    # save user message
     save_message(req.session_id, "user", req.message)
 
     action = agent_router(req.message)
@@ -108,42 +129,51 @@ def chat(req: ChatRequest):
     # -----------------------
     # TOOL MODE
     # -----------------------
-    # -----------------------
     if action == "tool":
 
-    	user_msg = req.message.lower()
+        command = extract_command(req.message)
 
-    	if "pods" in user_msg:
-            selected_command = "get pods"
-
-    	elif "services" in user_msg:
-            selected_command = "get services"
-
-    	elif "deployments" in user_msg:
-            selected_command = "get deployments"
-
-    	elif "nodes" in user_msg:
-            selected_command = "get nodes"
-
-    	else:
+        if not command:
             return {
                 "type": "tool",
-                "error": "No valid kubernetes resource matched"
+                "error": "No valid kubernetes command matched"
+            }
+
+        tool_result = call_tool(command)
+
+        # final reasoning step (important for "agentic" feel)
+        history = get_history(req.session_id)
+
+        context = "\n".join(
+            [f"{m['role']}: {m['message']}" for m in history]
+        )
+
+        final_prompt = f"""
+You are an AI system managing Kubernetes.
+
+Conversation:
+{context}
+
+Tool output:
+{tool_result}
+
+User request:
+{req.message}
+
+Give a clear final answer.
+"""
+
+        final = call_llm(final_prompt)
+        answer = final.get("response", "")
+
+        save_message(req.session_id, "assistant", answer)
+
+        return {
+            "type": "agent-chain",
+            "tool_used": command,
+            "response": answer
         }
 
-    	tool_response = requests.post(
-            "http://ai-tool-agent.ai-platform.svc.cluster.local:8000/execute",
-            json={"command": selected_command}
-    	)
-
-    	result = tool_response.json()
-
-    	save_message(req.session_id, "assistant", str(result))
-
-    	return {
-        "type": "tool",
-        "result": result
-    }
     # -----------------------
     # LLM MODE
     # -----------------------
@@ -153,31 +183,29 @@ def chat(req: ChatRequest):
         [f"{m['role']}: {m['message']}" for m in history]
     )
 
-    final_prompt = f"""
+    prompt = f"""
 You are an AI assistant.
 
-Conversation history:
+Conversation:
 {context}
 
 User:
 {req.message}
 """
 
-    llm_response = call_llm(final_prompt)
-
+    llm_response = call_llm(prompt)
     answer = llm_response.get("response", "")
 
     save_message(req.session_id, "assistant", answer)
 
     return {
         "type": "llm",
-        "response": answer,
-        "session_id": req.session_id
+        "response": answer
     }
 
 
 # ---------------------------
-# HEALTH CHECK
+# HEALTH
 # ---------------------------
 @app.get("/health")
 def health():
