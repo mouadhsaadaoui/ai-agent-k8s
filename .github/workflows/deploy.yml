@@ -30,8 +30,7 @@ jobs:
       # 2. BUILD IMAGE
       # ---------------------------
       - name: Set IMAGE
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/ai-agent:latest" >> $GITHUB_ENV
-
+        run: echo "IMAGE=ghcr.io/mouadhsaadaoui/ai-agent:${GITHUB_SHA}" >> $GITHUB_ENV
       - name: Build Docker image
         run: docker build -t $IMAGE .
 
