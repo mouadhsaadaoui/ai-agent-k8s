@@ -59,5 +59,9 @@ jobs:
       # ---------------------------
       - name: Deploy to Kubernetes
         run: |
-          kubectl apply -f k8s/
-          kubectl rollout restart deployment/ai-agent -n ai-platform
+          kubectl set image deployment/ai-agent \
+          ai-agent=$IMAGE \
+          -n ai-platform
+
+          kubectl rollout status deployment/ai-agent -n ai-platform
+
