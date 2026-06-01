@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-tool-agent
+  namespace: ai-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-tool-agent
+  template:
+    metadata:
+      labels:
+        app: ai-tool-agent
+    spec:
+      serviceAccountName: ai-agent-sa   # IMPORTANT (reuse RBAC)
+      containers:
+      - name: tool-agent
+        image: ghcr.io/mouadhsaadaoui/tool-agent:latest
+        ports:
+        - containerPort: 8000

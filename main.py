@@ -3,7 +3,6 @@ from pydantic import BaseModel
 import requests
 from typing import Dict, List
 
-from kubernetes import client, config
 
 app = FastAPI()
 
@@ -12,10 +11,7 @@ OLLAMA_URL = "http://ollama-service.ai-platform.svc.cluster.local:11434"
 # ---------------------------
 # KUBERNETES CLIENT INIT
 # ---------------------------
-config.load_incluster_config()
 
-v1 = client.CoreV1Api()
-apps = client.AppsV1Api()
 
 
 # ---------------------------
@@ -49,24 +45,6 @@ def save_message(session_id: str, role: str, message: str):
 # ---------------------------
 # KUBERNETES FUNCTIONS (NO KUBECTL)
 # ---------------------------
-def get_pods():
-    pods = v1.list_namespaced_pod(namespace="ai-platform")
-    return [p.metadata.name for p in pods.items]
-
-
-def get_services():
-    svcs = v1.list_namespaced_service(namespace="ai-platform")
-    return [s.metadata.name for s in svcs.items]
-
-
-def get_deployments():
-    deps = apps.list_namespaced_deployment(namespace="ai-platform")
-    return [d.metadata.name for d in deps.items]
-
-
-def get_nodes():
-    nodes = v1.list_node()
-    return [n.metadata.name for n in nodes.items]
 
 
 # ---------------------------
@@ -130,35 +108,42 @@ def chat(req: ChatRequest):
     # -----------------------
     # TOOL MODE
     # -----------------------
+    # -----------------------
     if action == "tool":
 
-        user_msg = req.message.lower()
+    	user_msg = req.message.lower()
 
-        if "pods" in user_msg:
-            result = get_pods()
+    	if "pods" in user_msg:
+            selected_command = "get pods"
 
-        elif "services" in user_msg:
-            result = get_services()
+    	elif "services" in user_msg:
+            selected_command = "get services"
 
-        elif "deployments" in user_msg:
-            result = get_deployments()
+    	elif "deployments" in user_msg:
+            selected_command = "get deployments"
 
-        elif "nodes" in user_msg:
-            result = get_nodes()
+    	elif "nodes" in user_msg:
+            selected_command = "get nodes"
 
-        else:
+    	else:
             return {
                 "type": "tool",
                 "error": "No valid kubernetes resource matched"
-            }
-
-        save_message(req.session_id, "assistant", str(result))
-
-        return {
-            "type": "tool",
-            "result": result
         }
 
+    	tool_response = requests.post(
+            "http://ai-tool-agent.ai-platform.svc.cluster.local:8000/execute",
+            json={"command": selected_command}
+    	)
+
+    	result = tool_response.json()
+
+    	save_message(req.session_id, "assistant", str(result))
+
+    	return {
+        "type": "tool",
+        "result": result
+    }
     # -----------------------
     # LLM MODE
     # -----------------------
