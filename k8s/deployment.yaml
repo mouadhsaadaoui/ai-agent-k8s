@@ -21,8 +21,7 @@ spec:
       containers:
       - name: ai-agent
 
-        image: ghcr.io/mouadhsaadaoui/ai-agent:${TAG}
-
+        image: ghcr.io/mouadhsaadaoui/ai-agent:latest
         imagePullPolicy: Always
 
         ports:
