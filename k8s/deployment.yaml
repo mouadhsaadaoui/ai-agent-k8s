@@ -18,6 +18,7 @@ spec:
         app: ai-agent
 
     spec:
+      serviceAccountName: ai-agent-sa
       containers:
       - name: ai-agent
 
