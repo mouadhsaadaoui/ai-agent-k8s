@@ -1,20 +1,58 @@
 apiVersion: apps/v1
 kind: Deployment
+
 metadata:
   name: ai-agent
   namespace: ai-platform
+
 spec:
-  replicas: 1
+  replicas: 2
+
   selector:
     matchLabels:
       app: ai-agent
+
   template:
     metadata:
       labels:
         app: ai-agent
+
     spec:
       containers:
-        - name: ai-agent
-          image: ghcr.io/mouadhsaadaoui/ai-agent-k8s/ai-agent:latest
-          ports:
-            - containerPort: 8000
+      - name: ai-agent
+
+        image: ghcr.io/mouadhsaadaoui/ai-agent:latest
+
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 8000
+
+        # ---------------------------
+        # RESOURCE LIMITS
+        # ---------------------------
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        # ---------------------------
+        # HEALTH CHECKS
+        # ---------------------------
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20

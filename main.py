@@ -1,12 +1,42 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+import subprocess
 import requests
 from typing import Dict, List
 
 app = FastAPI()
 
 OLLAMA_URL = "http://ollama-service:11434"
+SAFE_COMMANDS = {
+    "get pods": ["kubectl", "get", "pods", "-n", "ai-platform"],
+    "get services": ["kubectl", "get", "services", "-n", "ai-platform"],
+    "get deployments": ["kubectl", "get", "deployments", "-n", "ai-platform"],
+    "get nodes": ["kubectl", "get", "nodes"],
+}
+def execute_kubectl(command: str):
 
+    cmd = SAFE_COMMANDS.get(command)
+
+    if not cmd:
+        return {
+            "error": "Command not allowed"
+        }
+
+    try:
+        result = subprocess.check_output(
+            cmd,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+        return {
+            "output": result
+        }
+
+    except subprocess.CalledProcessError as e:
+        return {
+            "error": e.output
+        }
 # ---------------------------
 # MEMORY STORE (simple MVP)
 # ---------------------------
@@ -43,8 +73,13 @@ def agent_router(message: str):
     if "history" in msg:
         return "memory"
 
-    if "kubectl" in msg or "cluster" in msg:
-        return "tool"
+    if (
+   	 "pods" in msg or
+    	"services" in msg or
+    	"deployments" in msg or
+    	"nodes" in msg
+    ):
+    	return "tool"
 
     return "llm"
 
@@ -88,14 +123,32 @@ def chat(req: ChatRequest):
     # TOOL MODE (placeholder)
     # -----------------------
     if action == "tool":
-        response = {
-            "type": "tool",
-            "message": "Tool execution not implemented yet"
-        }
 
-        save_message(req.session_id, "assistant", str(response))
-        return response
+    user_msg = req.message.lower()
 
+    selected_command = None
+
+    if "pods" in user_msg:
+        selected_command = "get pods"
+
+    elif "services" in user_msg:
+        selected_command = "get services"
+
+    elif "deployments" in user_msg:
+        selected_command = "get deployments"
+
+    elif "nodes" in user_msg:
+        selected_command = "get nodes"
+
+    result = execute_kubectl(selected_command)
+
+    save_message(req.session_id, "assistant", str(result))
+
+    return {
+        "type": "tool",
+        "command": selected_command,
+        "result": result
+    }
     # -----------------------
     # LLM MODE
     # -----------------------
