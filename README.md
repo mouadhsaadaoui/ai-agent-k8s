@@ -1,4 +1,4 @@
-# 🚀 Kubernetes Multi-Agent AI Platform
+#  Kubernetes Multi-Agent AI Platform
 
 A Kubernetes-native AI platform combining multi-agent orchestration, local LLM inference, secure Kubernetes tool execution, and automated CI/CD pipelines.
 
